@@ -2,45 +2,27 @@
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-
-type Algo = 'HS256' | 'RS256';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor() {
-    // Resuelve clave y algoritmo de forma segura (sin undefined)
-    const publicKeyB64 = process.env.JWT_PUBLIC_KEY; // PEM pública en Base64 (para RS256)
-    const secret = process.env.JWT_SECRET;           // secreto simétrico (para HS256)
-
-    let secretOrKey: string | Buffer;
-    let algorithms: Algo[];
-
-    if (publicKeyB64 && publicKeyB64.trim().length > 0) {
-      secretOrKey = Buffer.from(publicKeyB64, 'base64'); // PEM pública
-      algorithms = ['RS256'];
-    } else if (secret && secret.trim().length > 0) {
-      secretOrKey = secret;
-      algorithms = ['HS256'];
-    } else {
-      throw new Error(
-        'JWT misconfigurado: define JWT_SECRET (HS256) o JWT_PUBLIC_KEY (Base64, RS256).'
-      );
-    }
+  constructor(cfg: ConfigService) {
+    // ✅ Se asegura de que el secreto nunca sea undefined
+    const secretOrKey = cfg.get<string>('JWT_SECRET') || 'change-me';
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey,
-      algorithms,
-      issuer: process.env.JWT_ISS || undefined,
-      audience: process.env.JWT_AUD || undefined,
+      ignoreExpiration: false,          // el token debe estar vigente
+      secretOrKey,                      // usa el mismo secret del servicio de Usuarios
+      algorithms: ['HS256'],            // mismo algoritmo
+      // No exigimos issuer/audience para evitar rechazar tokens válidos
     });
   }
 
   async validate(payload: any) {
+    // Este objeto se inyecta en req.user
     return {
-      sub: payload.sub,
-      userId: payload.sub, // compat
+      userId: payload.sub,
       email: payload.email,
       name: payload.name,
       roles: payload.roles ?? [],

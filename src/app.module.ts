@@ -1,14 +1,14 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { APP_GUARD } from '@nestjs/core';
+// src/app.module.ts
+import { Module } from '@nestjs/common'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+import { TypeOrmModule } from '@nestjs/typeorm'
 
-import { ClientesModule } from './clientes/clientes.module';
-import { VisitasModule } from './visitas/visitas.module';
+import { ClientesModule } from './clientes/clientes.module'
+import { VisitasModule } from './visitas/visitas.module'
 
-// Auth “ligero” (solo verifica JWT emitidos por el otro servicio)
-import { AuthCoreModule } from './auth/auth-core.module';
-import { JwtStrategy } from './auth/guards/jwt-auth.guard';
+import { AuthCoreModule } from './auth/auth-core.module'
+// import { APP_GUARD } from '@nestjs/core'
+// import { JwtAuthGuard } from './auth/guards/jwt-auth.guard'
 
 @Module({
   imports: [
@@ -27,18 +27,13 @@ import { JwtStrategy } from './auth/guards/jwt-auth.guard';
         ssl: false,
       }),
     }),
-
-    // 🔐 Verificación JWT (no emite tokens)
     AuthCoreModule,
-
-    // módulos de dominio
     ClientesModule,
-    VisitasModule, // <-- IMPORTANTE para que exista /visitas
+    VisitasModule,
   ],
   providers: [
-    // ✅ Guard global: todo protegido por defecto.
-    // Usa @Public() en controladores/rutas que quieras abrir.
-    { provide: APP_GUARD, useClass: JwtStrategy },
+    // ⛔ también quitamos el guard global aquí
+    // { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
 export class AppModule {}

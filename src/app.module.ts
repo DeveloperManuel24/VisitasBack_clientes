@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 
 import { ClientesModule } from './clientes/clientes.module'
 import { VisitasModule } from './visitas/visitas.module'
+import { GmailModule } from './gmail/gmail.module'
 
 import { AuthCoreModule } from './auth/auth-core.module'
 // import { APP_GUARD } from '@nestjs/core'
@@ -27,12 +28,13 @@ import { AuthCoreModule } from './auth/auth-core.module'
         ssl: false,
       }),
     }),
+
     AuthCoreModule,
     ClientesModule,
     VisitasModule,
+    GmailModule,
   ],
   providers: [
-    // ⛔ también quitamos el guard global aquí
     // { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })

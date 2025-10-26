@@ -10,11 +10,9 @@ export class GmailService {
     const user = process.env.GMAIL_USER
     const pass = process.env.GMAIL_APP_PASS
 
-    // si querés overridear host/puerto/secure por env, lo respetamos.
-    // si no, default a Gmail clásico.
     const host = process.env.SMTP_HOST ?? 'smtp.gmail.com'
-    const portRaw = process.env.SMTP_PORT ?? '465' // 465 SSL por default
-    const secureRaw = process.env.SMTP_SECURE ?? 'true' // 'true' => puerto 465 SSL
+    const portRaw = process.env.SMTP_PORT ?? '465'
+    const secureRaw = process.env.SMTP_SECURE ?? 'true'
 
     this.logger.log('[GmailService] init...')
     this.logger.log(`[GmailService] SMTP_HOST=${host}`)
@@ -23,16 +21,15 @@ export class GmailService {
     )
     this.logger.log(`[GmailService] GMAIL_USER=${user}`)
 
-    // validación mínima: si no hay user/pass NO armamos transporter.
+    // si no hay credenciales, deshabilitamos correo
     if (!user || !pass) {
       this.logger.warn(
-        '[GmailService] GMAIL_USER / GMAIL_APP_PASS no configurados. El envío de correos quedará deshabilitado en este deploy.',
+        '[GmailService] correo DESHABILITADO: faltan GMAIL_USER / GMAIL_APP_PASS',
       )
       this.transporter = null
       return
     }
 
-    // creamos transporter
     this.transporter = nodemailer.createTransport({
       host,
       port: Number(portRaw),
@@ -41,28 +38,20 @@ export class GmailService {
         user,
         pass,
       },
-      // para que no se quede colgado eternamente en Railway
       connectionTimeout: 10_000,
       socketTimeout: 10_000,
     })
 
-    // *** OJO IMPORTANTE ***
-    // ya NO hacemos transporter.verify() aquí.
-    // Eso en Railway nos tiraba ETIMEDOUT y mataba el contenedor.
-    //
-    // antes:
-    // this.transporter.verify()...
-    //
-    // ahora: no.
+    // *** IMPORTANTE ***
+    // NO verify().
+    // NO onModuleInit().
+    // NO awaits de red aquí.
     //
     this.logger.log(
-      '[GmailService] transporter creado (modo tolerante). No se verificó conexión SMTP al boot.',
+      '[GmailService] transporter creado en modo tolerante (sin verify al boot)',
     )
   }
 
-  // ======================================================
-  // 1) Mail de restablecer contraseña
-  // ======================================================
   async sendPasswordReset(to: string, name: string, link: string) {
     const from =
       process.env.MAIL_FROM ||
@@ -78,10 +67,9 @@ Enlace (vigencia limitada): ${link}
 Si no fuiste tú, ignora este mensaje.
 `
 
-    // si no hay transporter (no hay creds o falló init), solo logueamos
     if (!this.transporter) {
       this.logger.warn(
-        `[GmailService] sendPasswordReset SKIPPED -> correo deshabilitado. to=${to}`,
+        `[GmailService] sendPasswordReset SKIPPED (correo deshabilitado) to=${to}`,
       )
       return
     }
@@ -103,17 +91,12 @@ Si no fuiste tú, ignora este mensaje.
         `[GmailService] OK reset-pass -> ${info.messageId} to=${to}`,
       )
     } catch (err: any) {
-      // importantísimo: logueamos pero NO hacemos throw.
-      // así el backend no se muere en producción.
       this.logger.error(
         `[GmailService] ERROR reset-pass to=${to}: ${err?.message}`,
       )
     }
   }
 
-  // ======================================================
-  // 2) Mail de visita COMPLETADA al CLIENTE
-  // ======================================================
   async sendVisitaCompletada(opts: {
     to: string
     visitaId: string
@@ -142,7 +125,7 @@ Si no fuiste tú, ignora este mensaje.
 
     if (!this.transporter) {
       this.logger.warn(
-        `[GmailService] sendVisitaCompletada SKIPPED -> correo deshabilitado. visita=${opts.visitaId} to=${opts.to}`,
+        `[GmailService] sendVisitaCompletada SKIPPED (correo deshabilitado) visita=${opts.visitaId} to=${opts.to}`,
       )
       return
     }
@@ -170,9 +153,6 @@ Si no fuiste tú, ignora este mensaje.
     }
   }
 
-  // ======================================================
-  // Plantilla HTML visita completada
-  // ======================================================
   private templateVisitaCompletada(opts: {
     visitaId: string
     clienteNombre: string
@@ -264,9 +244,6 @@ Si no fuiste tú, ignora este mensaje.
     `
   }
 
-  // ======================================================
-  // Plantilla TEXT visita completada (fallback texto plano)
-  // ======================================================
   private templateVisitaCompletadaText(opts: {
     visitaId: string
     clienteNombre: string
@@ -299,9 +276,6 @@ SkyNet Visitas — Registro automático
 `
   }
 
-  // ======================================================
-  // Plantilla HTML reset password
-  // ======================================================
   private templatePasswordReset(name: string, link: string) {
     return `
       <div style="background:#f6f7fb;padding:24px;font-family:Arial,sans-serif;color:#111;">
@@ -321,9 +295,7 @@ SkyNet Visitas — Registro automático
           <tr>
             <td style="padding:24px">
               <p style="font-size:16px;margin:0 0 12px">
-                Hola <strong>${this.escape(
-                  name || 'usuario',
-                )}</strong>,
+                Hola <strong>${this.escape(name || 'usuario')}</strong>,
               </p>
 
               <p style="font-size:14px;color:#374151;margin:0 0 16px">
@@ -356,9 +328,6 @@ SkyNet Visitas — Registro automático
     `
   }
 
-  // ======================================================
-  // util escape
-  // ======================================================
   private escape(s: string) {
     return s.replace(
       /[&<>"']/g,

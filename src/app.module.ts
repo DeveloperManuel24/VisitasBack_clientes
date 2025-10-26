@@ -18,14 +18,22 @@ import { AuthCoreModule } from './auth/auth-core.module'
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
         type: 'postgres',
+
         host: cfg.get<string>('DB_HOST'),
         port: Number(cfg.get('DB_PORT')),
         database: cfg.get<string>('DB_NAME'),
         username: cfg.get<string>('DB_USER'),
         password: String(cfg.get('DB_PASS') ?? ''),
+
+        schema: cfg.get<string>('DB_SCHEMA') || 'public',
+
         autoLoadEntities: true,
         synchronize: false,
-        ssl: false,
+
+        // Heroku Postgres via Railway exige SSL cifrado
+        ssl: {
+          rejectUnauthorized: false,
+        },
       }),
     }),
 

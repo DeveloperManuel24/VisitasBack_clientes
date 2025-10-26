@@ -4,64 +4,87 @@ import * as nodemailer from 'nodemailer'
 @Injectable()
 export class GmailService {
   private readonly logger = new Logger(GmailService.name)
-  private transporter: nodemailer.Transporter
+  private transporter: nodemailer.Transporter | null = null
 
   constructor() {
-    // Leemos .env
     const user = process.env.GMAIL_USER
     const pass = process.env.GMAIL_APP_PASS
-    const portRaw = process.env.SMTP_PORT ?? '465'
-    const secureRaw = process.env.SMTP_SECURE ?? 'true'
 
-    // Logs de diagnóstico al boot
-    this.logger.log(`[GmailService] starting...`)
-    this.logger.log(`[GmailService] GMAIL_USER=${user}`)
+    // si querés overridear host/puerto/secure por env, lo respetamos.
+    // si no, default a Gmail clásico.
+    const host = process.env.SMTP_HOST ?? 'smtp.gmail.com'
+    const portRaw = process.env.SMTP_PORT ?? '465' // 465 SSL por default
+    const secureRaw = process.env.SMTP_SECURE ?? 'true' // 'true' => puerto 465 SSL
+
+    this.logger.log('[GmailService] init...')
+    this.logger.log(`[GmailService] SMTP_HOST=${host}`)
     this.logger.log(
       `[GmailService] SMTP_PORT=${portRaw} secure=${secureRaw}`,
     )
+    this.logger.log(`[GmailService] GMAIL_USER=${user}`)
 
+    // validación mínima: si no hay user/pass NO armamos transporter.
+    if (!user || !pass) {
+      this.logger.warn(
+        '[GmailService] GMAIL_USER / GMAIL_APP_PASS no configurados. El envío de correos quedará deshabilitado en este deploy.',
+      )
+      this.transporter = null
+      return
+    }
+
+    // creamos transporter
     this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: Number(portRaw), // 465 SSL, 587 STARTTLS
-      secure: String(secureRaw) === 'true', // true => 465
+      host,
+      port: Number(portRaw),
+      secure: String(secureRaw) === 'true',
       auth: {
-        user, // cuenta gmail/workspace
-        pass, // app password (2FA)
+        user,
+        pass,
       },
+      // para que no se quede colgado eternamente en Railway
+      connectionTimeout: 10_000,
+      socketTimeout: 10_000,
     })
 
-    // Verificamos conexión SMTP inmediatamente
-    this.transporter
-      .verify()
-      .then(() => {
-        this.logger.log(
-          '[GmailService] transporter.verify() OK ✅ listo para enviar',
-        )
-      })
-      .catch((err) => {
-        this.logger.error(
-          '[GmailService] transporter.verify() FAILED ❌',
-          err,
-        )
-      })
+    // *** OJO IMPORTANTE ***
+    // ya NO hacemos transporter.verify() aquí.
+    // Eso en Railway nos tiraba ETIMEDOUT y mataba el contenedor.
+    //
+    // antes:
+    // this.transporter.verify()...
+    //
+    // ahora: no.
+    //
+    this.logger.log(
+      '[GmailService] transporter creado (modo tolerante). No se verificó conexión SMTP al boot.',
+    )
   }
 
   // ======================================================
-  // 1) Mail de restablecer contraseña (ya lo tenías)
+  // 1) Mail de restablecer contraseña
   // ======================================================
   async sendPasswordReset(to: string, name: string, link: string) {
     const from =
       process.env.MAIL_FROM ||
-      `SkyNet Visitas <${process.env.GMAIL_USER}>`
+      `SkyNet Visitas <${process.env.GMAIL_USER ?? 'no-reply@visitas'}>`
 
     const subject = 'Restablecer contraseña - SkyNet Visitas'
     const html = this.templatePasswordReset(name, link)
-    const text = `Hola ${name},
+    const text = `Hola ${name || 'usuario'},
 
 Recibimos una solicitud para restablecer tu contraseña.
 Enlace (vigencia limitada): ${link}
 
-Si no fuiste tú, ignora este mensaje.`
+Si no fuiste tú, ignora este mensaje.
+`
+
+    // si no hay transporter (no hay creds o falló init), solo logueamos
+    if (!this.transporter) {
+      this.logger.warn(
+        `[GmailService] sendPasswordReset SKIPPED -> correo deshabilitado. to=${to}`,
+      )
+      return
+    }
 
     try {
       this.logger.log(
@@ -79,10 +102,11 @@ Si no fuiste tú, ignora este mensaje.`
       this.logger.log(
         `[GmailService] OK reset-pass -> ${info.messageId} to=${to}`,
       )
-    } catch (err) {
+    } catch (err: any) {
+      // importantísimo: logueamos pero NO hacemos throw.
+      // así el backend no se muere en producción.
       this.logger.error(
-        `[GmailService] ERROR reset-pass to=${to}`,
-        err,
+        `[GmailService] ERROR reset-pass to=${to}: ${err?.message}`,
       )
     }
   }
@@ -110,12 +134,18 @@ Si no fuiste tú, ignora este mensaje.`
 
     const from =
       process.env.MAIL_FROM ||
-      `SkyNet Visitas <${process.env.GMAIL_USER}>`
+      `SkyNet Visitas <${process.env.GMAIL_USER ?? 'no-reply@visitas'}>`
 
     const subject = `Visita ${opts.visitaId} completada`
-
     const html = this.templateVisitaCompletada(opts)
     const text = this.templateVisitaCompletadaText(opts)
+
+    if (!this.transporter) {
+      this.logger.warn(
+        `[GmailService] sendVisitaCompletada SKIPPED -> correo deshabilitado. visita=${opts.visitaId} to=${opts.to}`,
+      )
+      return
+    }
 
     try {
       this.logger.log(
@@ -133,10 +163,9 @@ Si no fuiste tú, ignora este mensaje.`
       this.logger.log(
         `[GmailService] OK visita completada -> ${info.messageId} to=${opts.to}`,
       )
-    } catch (err) {
+    } catch (err: any) {
       this.logger.error(
-        `[GmailService] ERROR visita completada visita=${opts.visitaId} to=${opts.to}`,
-        err,
+        `[GmailService] ERROR visita completada visita=${opts.visitaId} to=${opts.to}: ${err?.message}`,
       )
     }
   }
